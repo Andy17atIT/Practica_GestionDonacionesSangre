@@ -253,4 +253,90 @@ public class GestionDonacionesSangre {
         }
     }
 	
+	public static void pruebaRealizarDonacion() {
+	    System.out.println("\n=======================================================");
+	    System.out.println("  INICIANDO BATERÍA DE PRUEBAS: REALIZAR DONACION");
+	    System.out.println("=======================================================\n");
+
+	    // Datos reales según el script SQL
+	    String nifValido      = "98989898C";  // Maria Fernandez - última donación: 25/01/2025
+	    String nifSinDonar    = "98765432Y";  // Alba Serrano    - última donación: 25/01/2025
+	    int    hospitalValido = 1;            // Complejo Asistencial de Avila (tiene reserva de Tipo O)
+
+	    // ------------------------------------------------------------------
+	    // PRUEBA 1: Caso de ejecución normal
+	    // ------------------------------------------------------------------
+	    System.out.println("[Prueba 1]: Donación correcta con datos válidos.");
+	    try {
+	        // 98989898C donó por última vez el 25/01/2025 → han pasado más de 15 días
+	        realizar_donacion("98989898C", hospitalValido, 0.25, java.sql.Date.valueOf("2025-02-15"));
+	        System.out.println("PRUEBA 1 SUPERADA: La donación se registró correctamente.");
+	    } catch (Exception e) {
+	        System.out.println("PRUEBA 1 FALLIDA: Se produjo una excepción inesperada.");
+	        e.printStackTrace();
+	    }
+
+	    System.out.println("\n-------------------------------------------------------");
+
+	    // ------------------------------------------------------------------
+	    // PRUEBA 2: Donante inexistente
+	    // ------------------------------------------------------------------
+	    System.out.println("[Prueba 2]: NIF que no existe en la tabla donante.");
+	    try {
+	        realizar_donacion("XXXXXXXXX", hospitalValido, 0.25, java.sql.Date.valueOf("2025-02-15"));
+	        System.out.println("PRUEBA 2 FALLIDA: Se esperaba excepción por donante inexistente.");
+	    } catch (Exception e) {
+	        System.out.println("PRUEBA 2 SUPERADA: Excepción capturada correctamente.");
+	        System.out.println("   -> " + e.getMessage());
+	    }
+
+	    System.out.println("\n-------------------------------------------------------");
+
+	    // ------------------------------------------------------------------
+	    // PRUEBA 3: Hospital inexistente
+	    // ------------------------------------------------------------------
+	    System.out.println("[Prueba 3]: ID de hospital que no existe en la BD.");
+	    try {
+	        realizar_donacion("98989898C", 9999, 0.25, java.sql.Date.valueOf("2025-03-15"));
+	        System.out.println("PRUEBA 3 FALLIDA: Se esperaba excepción por hospital inexistente.");
+	    } catch (Exception e) {
+	        System.out.println("PRUEBA 3 SUPERADA: Excepción capturada correctamente.");
+	        System.out.println("   -> " + e.getMessage());
+	    }
+
+	    System.out.println("\n-------------------------------------------------------");
+
+	    // ------------------------------------------------------------------
+	    // PRUEBA 4: Cantidad superior a 0.45 litros
+	    // ------------------------------------------------------------------
+	    System.out.println("[Prueba 4]: Cantidad de donación superior al límite (0.45 L).");
+	    try {
+	        realizar_donacion("98765432Y", hospitalValido, 0.50, java.sql.Date.valueOf("2025-02-15"));
+	        System.out.println("PRUEBA 4 FALLIDA: Se esperaba excepción por cantidad excesiva.");
+	    } catch (Exception e) {
+	        System.out.println("PRUEBA 4 SUPERADA: Excepción capturada correctamente.");
+	        System.out.println("   -> " + e.getMessage());
+	    }
+
+	    System.out.println("\n-------------------------------------------------------");
+
+
+	    // ------------------------------------------------------------------
+	    // PRUEBA 5: Caso borde — exactamente 0.45 L (límite permitido)
+	    // ------------------------------------------------------------------
+	    System.out.println("[Prueba 6]: Cantidad exactamente igual al límite permitido (0.45 L).");
+	    try {
+	        // 98765432Y donó el 25/01/2025 → el 15/02/2025 han pasado 21 días, es válido
+	        realizar_donacion("98765432Y", hospitalValido, 0.45, java.sql.Date.valueOf("2025-02-15"));
+	        System.out.println("PRUEBA 6 SUPERADA: La donación en el límite exacto se aceptó.");
+	    } catch (Exception e) {
+	        System.out.println("PRUEBA 6 FALLIDA: El límite exacto debería ser válido (condición es > 0.45).");
+	        System.out.println("   -> " + e.getMessage());
+	    }
+
+	    System.out.println("\n=======================================================");
+	    System.out.println("  FIN DE LA BATERÍA DE PRUEBAS: REALIZAR DONACION");
+	    System.out.println("=======================================================");
+	}
+	
 }
