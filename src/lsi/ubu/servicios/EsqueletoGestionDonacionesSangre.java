@@ -66,21 +66,136 @@ public class EsqueletoGestionDonacionesSangre {
 			throws SQLException {
 		
 		PoolDeConexiones pool = PoolDeConexiones.getInstance();
-		Connection con=null;
+
+		Connection        con            = null;
+		PreparedStatement psHospital     = null;
+		PreparedStatement psTipoSangre   = null;
+		PreparedStatement psSelectTrasp  = null;
+		PreparedStatement psRestaDestino = null;
+		PreparedStatement psSumaOrigen   = null;
+		PreparedStatement psDelete       = null;
+
 
 	
 		try{
 			con = pool.getConnection();
-			//Completar por el alumno
+
+			// 1. Validar que el hospital ORIGEN existe
+			psHospital = con.prepareStatement(
+				"SELECT COUNT(*) FROM hospital WHERE id_hospital = ?");
+
+			psHospital.setInt(1, m_ID_Hospital_Origen);
+			ResultSet rsHosp = psHospital.executeQuery();
+			rsHosp.next();
+			if (rsHosp.getInt(1) == 0) {
+				throw new GestionDonacionesSangreException(
+					GestionDonacionesSangreException.HOSPITAL_NO_EXISTE);
+			}
+			rsHosp.close();
+
+			// 2. Validar que el hospital DESTINO existe
+			psHospital.setInt(1, m_ID_Hospital_Destino);
+			rsHosp = psHospital.executeQuery();
+			rsHosp.next();
+			if (rsHosp.getInt(1) == 0) {
+				throw new GestionDonacionesSangreException(
+					GestionDonacionesSangreException.HOSPITAL_NO_EXISTE);
+			}
+			rsHosp.close();
+
+			// 3. Validar que el tipo de sangre existe
+			psTipoSangre = con.prepareStatement(
+				"SELECT COUNT(*) FROM tipo_sangre WHERE id_tipo_sangre = ?");
+
+			psTipoSangre.setInt(1, m_ID_Tipo_Sangre);
+			ResultSet rsTs = psTipoSangre.executeQuery();
+			rsTs.next();
+			if (rsTs.getInt(1) == 0) {
+				throw new GestionDonacionesSangreException(
+					GestionDonacionesSangreException.TIPO_SANGRE_NO_EXISTE);
+			}
+			rsTs.close();
+
+			// 4. Seleccionar los traspasos que cumplen los cuatro criterios
+			//    (puede haber más de uno en la misma fecha con los mismos parámetros)
+			psSelectTrasp = con.prepareStatement(
+				"SELECT id_traspaso, cantidad"              + " " +
+				"FROM   traspaso"                           + " " +
+				"WHERE  id_tipo_sangre        = ?"          + " " +
+				"  AND  id_hospital_origen    = ?"          + " " +
+				"  AND  id_hospital_destino   = ?"          + " " +
+				"  AND  trunc(fecha_traspaso) = trunc(?)");
+
+			psSelectTrasp.setInt (1, m_ID_Tipo_Sangre);
+			psSelectTrasp.setInt (2, m_ID_Hospital_Origen);
+			psSelectTrasp.setInt (3, m_ID_Hospital_Destino);
+			psSelectTrasp.setDate(4, new java.sql.Date(m_Fecha_Traspaso.getTime()));
+
+			ResultSet rsTrasp = psSelectTrasp.executeQuery();
+
+			// 5. Para cada traspaso: ajustar reservas y borrar el registro
+			//    · RESTAR cantidad en la reserva del hospital DESTINO
+			//    · SUMAR  cantidad en la reserva del hospital ORIGEN
+			psRestaDestino = con.prepareStatement(
+				"UPDATE reserva_hospital"          + " " +
+				"SET    cantidad = cantidad - ?"   + " " +
+				"WHERE  id_tipo_sangre = ?"        + " " +
+				"  AND  id_hospital    = ?");
+
+			psSumaOrigen = con.prepareStatement(
+				"UPDATE reserva_hospital"          + " " +
+				"SET    cantidad = cantidad + ?"   + " " +
+				"WHERE  id_tipo_sangre = ?"        + " " +
+				"  AND  id_hospital    = ?");
+
+			psDelete = con.prepareStatement(
+				"DELETE FROM traspaso WHERE id_traspaso = ?");
+
+			while (rsTrasp.next()) {
+				int    idTraspaso = rsTrasp.getInt   ("id_traspaso");
+				double cantidad   = rsTrasp.getDouble("cantidad");
+
+				// Restar en destino (ORA-02290 si la reserva quedaría < 0)
+				psRestaDestino.setDouble(1, cantidad);
+				psRestaDestino.setInt   (2, m_ID_Tipo_Sangre);
+				psRestaDestino.setInt   (3, m_ID_Hospital_Destino);
+				psRestaDestino.executeUpdate();
+
+				// Sumar en origen
+				psSumaOrigen.setDouble(1, cantidad);
+				psSumaOrigen.setInt   (2, m_ID_Tipo_Sangre);
+				psSumaOrigen.setInt   (3, m_ID_Hospital_Origen);
+				psSumaOrigen.executeUpdate();
+
+				// Borrar el traspaso
+				psDelete.setInt(1, idTraspaso);
+				psDelete.executeUpdate();
+			}
+			rsTrasp.close();
+
+			con.commit();
+			System.out.println("anular_traspaso: operación completada correctamente.");
 			
 		} catch (SQLException e) {
-			//Completar por el alumno			
-			
+			if (con != null) con.rollback();
+
+			// ORA-02290: violación de constraint CHECK → reserva destino < 0
+			if (e.getErrorCode() == 2290) {
+				throw new GestionDonacionesSangreException(
+					GestionDonacionesSangreException.VALOR_CANTIDAD_TRASPASO_INCORRECTO);
+			}
+
 			logger.error(e.getMessage());
 			throw e;		
 
 		} finally {
-			/*A rellenar por el alumno*/
+			if (psDelete       != null) try { psDelete.close();        } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (psSumaOrigen   != null) try { psSumaOrigen.close();    } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (psRestaDestino != null) try { psRestaDestino.close();   } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (psSelectTrasp  != null) try { psSelectTrasp.close();    } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (psTipoSangre   != null) try { psTipoSangre.close();    } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (psHospital     != null) try { psHospital.close();       } catch (SQLException ex) { logger.error(ex.getMessage()); }
+			if (con            != null) try { con.close();              } catch (SQLException ex) { logger.error(ex.getMessage()); }
 		}		
 	}
 	
@@ -202,11 +317,129 @@ public class EsqueletoGestionDonacionesSangre {
 		} catch (SQLException e) {
 			System.out.println("TEST 2 FALLIDO: Saltó una SQLException genérica en lugar de la propia.");
 		}
+		
+		//--------------------------------------------------------------------------
+		// Caso 3 – Anulación correcta (caso normal)
+		// -------------------------------------------------------------------------
+		// Traspaso: tipo=1, origen=1, destino=2, cantidad=2, fecha=11/01/2025
+		// Hospital 2 reserva tipo 1 = 2.45 → restar 2 → 0.45 ≥ 0 → OK
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool); 
+		
+		System.out.println("\n=== CASO 3: Anulación correcta ===");
+		try {
+			anular_traspaso(1, 1, 2, toDate("11/01/2025"));
+			System.out.println("CASO 3 OK: traspaso anulado sin excepción.");
+		} catch (SQLException e) {
+			System.out.println("CASO 3 FALLO inesperado: " + e.getMessage());
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 4 – Hospital ORIGEN inexistente → excepción código 3
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool); 
+		
+		System.out.println("\n=== CASO 4: Hospital origen inexistente ===");
+		try {
+			anular_traspaso(1, 9999, 2, toDate("11/01/2025"));
+			System.out.println("CASO 4 FALLO: debería haber lanzado excepción código 3.");
+		} catch (GestionDonacionesSangreException ge) {
+			if (ge.getErrorCode() == GestionDonacionesSangreException.HOSPITAL_NO_EXISTE) {
+				System.out.println("CASO 4 OK: excepción código 3 capturada – " + ge.getMessage());
+			} else {
+				System.out.println("CASO 4 FALLO: código incorrecto " + ge.getErrorCode());
+			}
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 5 – Hospital DESTINO inexistente → excepción código 3
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool); 
+		
+		System.out.println("\n=== CASO 5: Hospital destino inexistente ===");
+		try {
+			anular_traspaso(1, 1, 9999, toDate("11/01/2025"));
+			System.out.println("CASO 5 FALLO: debería haber lanzado excepción código 3.");
+		} catch (GestionDonacionesSangreException ge) {
+			if (ge.getErrorCode() == GestionDonacionesSangreException.HOSPITAL_NO_EXISTE) {
+				System.out.println("CASO 5 OK: excepción código 3 capturada – " + ge.getMessage());
+			} else {
+				System.out.println("CASO 5 FALLO: código incorrecto " + ge.getErrorCode());
+			}
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 6 – Tipo de sangre inexistente → excepción código 2
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool); 
+		
+		System.out.println("\n=== CASO 6: Tipo de sangre inexistente ===");
+		try {
+			anular_traspaso(9999, 1, 2, toDate("11/01/2025"));
+			System.out.println("CASO 6 FALLO: debería haber lanzado excepción código 2.");
+		} catch (GestionDonacionesSangreException ge) {
+			if (ge.getErrorCode() == GestionDonacionesSangreException.TIPO_SANGRE_NO_EXISTE) {
+				System.out.println("CASO 6 OK: excepción código 2 capturada – " + ge.getMessage());
+			} else {
+				System.out.println("CASO 6 FALLO: código incorrecto " + ge.getErrorCode());
+			}
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 7 – Reserva destino quedaría negativa → excepción código 6
+		// -------------------------------------------------------------------------
+		// Traspaso: tipo=2, origen=3, destino=2, cantidad=10, fecha=16/01/2025
+		// Hospital 2 reserva tipo 2 = 5.5 → restar 10 → -4.5 → ORA-02290 → código 6
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool); 
+		
+		System.out.println("\n=== CASO 7: Reserva destino insuficiente (código 6) ===");
+		try {
+			anular_traspaso(2, 3, 2, toDate("16/01/2025"));
+			System.out.println("CASO 7 FALLO: debería haber lanzado excepción código 6.");
+		} catch (GestionDonacionesSangreException ge) {
+			if (ge.getErrorCode() == GestionDonacionesSangreException.VALOR_CANTIDAD_TRASPASO_INCORRECTO) {
+				System.out.println("CASO 7 OK: excepción código 6 capturada – " + ge.getMessage());
+			} else {
+				System.out.println("CASO 7 FALLO: código incorrecto " + ge.getErrorCode());
+			}
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 8 – Ningún traspaso coincide con los parámetros (caso extremo benigno)
+		// -------------------------------------------------------------------------
+		// Fecha 01/01/1900 no existe en los datos de prueba → 0 filas afectadas, sin excepción
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool);
+		
+		System.out.println("\n=== CASO 8: Ningún traspaso encontrado ===");
+		try {
+			anular_traspaso(1, 1, 2, toDate("01/01/1900"));
+			System.out.println("CASO 8 OK: ningún traspaso encontrado, sin excepción.");
+		} catch (SQLException e) {
+			System.out.println("CASO 8 FALLO inesperado: " + e.getMessage());
+		}
+		
+		// -------------------------------------------------------------------------
+		// Caso 9 – Varios traspasos con los mismos parámetros en la misma fecha
+		// -------------------------------------------------------------------------
+		// Traspaso tipo=3 (AB), origen=1, destino=2, cantidad=2.1, fecha=11/01/2025
+		// Hospital 2 reserva tipo 3 = 8.82 → restar 2.1 → 6.72 ≥ 0 → OK
+		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool);
+		
+		System.out.println("\n=== CASO 9: Varios traspasos misma fecha y parámetros ===");
+		try {
+			anular_traspaso(3, 1, 2, toDate("11/01/2025"));
+			System.out.println("CASO 9 OK: traspaso tipo AB anulado sin excepción.");
+		} catch (SQLException e) {
+			System.out.println("CASO 9 FALLO inesperado: " + e.getMessage());
+		}
 	}
 		
 		/**
 		 * MÉTDO AUXILIAR:
-		 * Contiene EXACTAMENTE el código que se no dio para inicializarlos tests
+		 * Contiene EXACTAMENTE el código que se no dio para inicializar los tests y un código extra para manejar fechas
 		 */
 		static void inicializarDatosPrueba(PoolDeConexiones pool) {
 			CallableStatement cll_reinicia=null; //
@@ -230,5 +463,14 @@ public class EsqueletoGestionDonacionesSangre {
 					logger.error(ex.getMessage());
 				}
 			}	
+		}
+		private static Date toDate(String ddmmyyyy) {
+			String[]           parts = ddmmyyyy.split("/");
+			java.util.Calendar cal   = java.util.Calendar.getInstance();
+			cal.set(Integer.parseInt(parts[2]),
+			        Integer.parseInt(parts[1]) - 1,
+			        Integer.parseInt(parts[0]), 0, 0, 0);
+			cal.set(java.util.Calendar.MILLISECOND, 0);
+			return cal.getTime();
 		}
 }
