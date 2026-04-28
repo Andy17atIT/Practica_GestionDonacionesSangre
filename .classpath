@@ -12,5 +12,6 @@
 	<classpathentry kind="lib" path="/home/alumno/Escritorio/lib/slf4j-api-1.7.30.jar"/>
 	<classpathentry kind="lib" path="/home/alumno/Escritorio/lib/slf4j-log4j12-1.7.30.jar"/>
 	<classpathentry kind="lib" path="/home/alumno/Escritorio/lib/ucp.jar"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/user_library"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
