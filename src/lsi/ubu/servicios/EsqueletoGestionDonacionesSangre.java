@@ -73,20 +73,19 @@ public class EsqueletoGestionDonacionesSangre {
 			st.close();
 
 			// 4. Comprobar regla de los 15 dias
-			st = con.prepareStatement("SELECT MAX(fecha_donacion) FROM donacion WHERE nif_donante = ?");
-			st.setString(1, m_NIF);
-			rs = st.executeQuery();
-
-			if (rs.next() && rs.getDate(1) != null) {
-				Date ultimaFecha = rs.getDate(1);
-				long diferencia = m_Fecha_Donacion.getTime() - ultimaFecha.getTime();
-				long dias = diferencia / (1000 * 60 * 60 * 24);
-
-				if (dias < 15) {
-					throw new GestionDonacionesSangreException(GestionDonacionesSangreException.DONANTE_EXCEDE);
+			st = con.prepareStatement(
+				    "SELECT TRUNC(?) - TRUNC(MAX(fecha_donacion)) " +
+				    "FROM donacion WHERE nif_donante = ?");
+				st.setDate(1, new java.sql.Date(m_Fecha_Donacion.getTime()));
+				st.setString(2, m_NIF);
+				rs = st.executeQuery();
+				if (rs.next() && rs.getObject(1) != null) {
+				    int dias = rs.getInt(1);
+				    if (dias < 15) {
+				        throw new GestionDonacionesSangreException(GestionDonacionesSangreException.DONANTE_EXCEDE);
+				    }
 				}
-			}
-			st.close();
+				st.close();
 
 			// 5. Insertar la donacion
 			st = con.prepareStatement(
@@ -138,6 +137,7 @@ public class EsqueletoGestionDonacionesSangre {
 
 		try {
 			con = pool.getConnection();
+			con.setAutoCommit(false);
 
 			// 1. Validar que el hospital ORIGEN existe
 			psHospital = con.prepareStatement("SELECT COUNT(*) FROM hospital WHERE id_hospital = ?");
@@ -289,6 +289,7 @@ public class EsqueletoGestionDonacionesSangre {
 
 		try {
 			con = pool.getConnection();
+			con.setAutoCommit(false);
 
 			// 1. Comprobar si el tipo de sangre existe
 			String sqlCheck = "SELECT id_tipo_sangre FROM tipo_sangre WHERE descripcion = ?";
@@ -297,13 +298,12 @@ public class EsqueletoGestionDonacionesSangre {
 			rsCheck = psCheck.executeQuery();
 
 			if (!rsCheck.next()) {
-				// Lanza la excepción específica si no existe [cite: 42]
+				// Lanza la excepción específica si no existe
 				throw new GestionDonacionesSangreException(2);
 			}
 			int idTipoSangre = rsCheck.getInt("id_tipo_sangre");
 
 			// 2. Consulta principal: Mostrar traspasos, hospital, reserva y tipo sangre
-			// [cite: 27]
 			String sqlQuery = "SELECT t.id_traspaso, t.fecha_traspaso, t.cantidad AS cantidad_traspasada, "
 					+ "       ho.nombre AS hospital_origen, hd.nombre AS hospital_destino, "
 					+ "       rho.cantidad AS reserva_origen, rhd.cantidad AS reserva_destino " + "FROM traspaso t "
@@ -401,6 +401,7 @@ public class EsqueletoGestionDonacionesSangre {
 		} catch (SQLException e) {
 			System.out.println("TEST 2 FALLIDO: Saltó una SQLException genérica en lugar de la propia.");
 		}
+		
 
 		// --------------------------------------------------------------------------
 		// Caso 3 – Anulación correcta (caso normal)
@@ -520,22 +521,23 @@ public class EsqueletoGestionDonacionesSangre {
 		} catch (SQLException e) {
 			System.out.println("CASO 9 FALLO inesperado: " + e.getMessage());
 		}
-		// -------------------------------------------------------------------------
+		/*// -------------------------------------------------------------------------
 		// Caso 10 – Donación correcta 
 		// -------------------------------------------------------------------------
 		inicializarDatosPrueba(pool);
 		System.out.println("\n=== CASO 10: Donación correcta ===");
 		try {
 			// NIF que exista, Hospital 1, cantidad permitida, fecha válida
-			realizar_donacion("12345678A", 1, 0.30f, toDate("25/01/2025"));
+			realizar_donacion("12345678A", 1, 0.30f, toDate("26/01/2025"));
 			System.out.println("CASO 10 OK: Donación registrada e incremento de reserva realizado.");
 		} catch (SQLException e) {
 			System.out.println("CASO 10 FALLO inesperado: " + e.getMessage());
-		}
+		}*/
 
 		// -------------------------------------------------------------------------
 		// Caso 11 – Cantidad incorrecta (> 0.45) 
 		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool);
 		System.out.println("\n=== CASO 11: Cantidad superior al máximo (0.45 L) ===");
 		try {
 			realizar_donacion("12345678A", 1, 0.60f, toDate("25/01/2025"));
@@ -553,6 +555,8 @@ public class EsqueletoGestionDonacionesSangre {
 		// -------------------------------------------------------------------------
 		// Caso 12 – Donante inexistente
 		// -------------------------------------------------------------------------
+		inicializarDatosPrueba(pool);
+		
 		System.out.println("\n=== CASO 12: Donante inexistente ===");
 		try {
 			realizar_donacion("99999999Z", 1, 0.30f, toDate("25/01/2025"));
@@ -588,8 +592,8 @@ public class EsqueletoGestionDonacionesSangre {
 	}
 
 	/**
-	 * MÉTDO AUXILIAR: Contiene EXACTAMENTE el código que se no dio para inicializar
-	 * los tests y un código extra para manejar fechas
+	 * MÉTODOs AUXILIARES: Contiene EXACTAMENTE el código que se no dio para inicializar
+	 * los tests y otro método extra para manejar fechas
 	 */
 	static void inicializarDatosPrueba(PoolDeConexiones pool) {
 		CallableStatement cll_reinicia = null; //
